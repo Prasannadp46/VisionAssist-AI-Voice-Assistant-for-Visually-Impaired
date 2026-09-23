@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Access — Accessibility Assistant</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0
+    }
+
+    body {
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 20px;
+      min-height: 100vh;
+      overflow-x: hidden
+    }
+
+    :root {
+      --accent: #FFD700;
+      --bg: #000;
+      --card: #111;
+      --border: #333;
+      --green: #00cc44;
+      --red: #ff4444
+    }
+
+    /* ── STATUS BAR ── */
+    #status-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #0d0d0d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 1000;
+      border-bottom: 2px solid var(--accent)
+    }
+
+    #mic-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #444;
+      flex-shrink: 0;
+      transition: background .3s
+    }
+
+    #mic-dot.on {
+      background: var(--green);
+      animation: pulse 1.2s infinite
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .35
+      }
+    }
+
+    #voice-text {
+      flex: 1;
+      font-size: 15px;
+      color: var(--accent);
+      font-style: italic;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    #speak-icon {
+      font-size: 16px;
+      color: #888;
+      white-space: nowrap
+    }
+
+    /* ── ALERT OVERLAY ── */
+    #alert-box {
+      display: none;
+      position: fixed;
+      top: 64px;
+      left: 12px;
+      right: 12px;
+      background: #1a0000;
+      border: 3px solid var(--red);
+      color: var(--red);
+      padding: 18px 20px;
+      border-radius: 12px;
+      font-size: 22px;
+      font-weight: bold;
+      text-align: center;
+      z-index: 9999;
+      animation: pop .3s ease
+    }
+
+    @keyframes pop {
+      from {
+        transform: scale(.9);
+        opacity: 0
+      }
+
+      to {
+        transform: scale(1);
+        opacity: 1
+      }
+    }
+
+    /* ── CAMERA PREVIEW ── */
+    #cam-wrap {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 900
+    }
+
+    #cam-video {
+      width: 180px;
+      height: 135px;
+      border: 2px solid var(--accent);
+      border-radius: 8px;
+      object-fit: cover;
+      background: #111;
+      display: block
+    }
+
+    #det-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      width: 180px;
+      height: 135px
+    }
+
+    #snap-canvas {
+      display: none
+    }
+
+    /* ── LAYOUT ── */
+    #wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 16px 16px 200px
+    }
+
+    #content {
+      margin-top: 68px
+    }
+
+    /* ── SCREENS ── */
+    .scr {
+      display: none
+    }
+
+    .scr.on {
+      display: block
+    }
+
+    /* ── HOME ── */
+    #home h1 {
+      font-size: 38px;
+      color: var(--accent);
+      text-align: center;
+      margin: 24px 0 6px
+    }
+
+    .tagline {
+      text-align: center;
+      color: #888;
+      margin-bottom: 32px;
+      font-size: 17px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 18px;
+      margin-top: 10px
+    }
+
+    .tile {
+      background: var(--card);
+      border: 3px solid var(--accent);
+      color: #fff;
+      padding: 28px 18px;
+      border-radius: 14px;
+      font-size: 22px;
+      cursor: pointer;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: background .15s
+    }
+
+    .tile:hover,
+    .tile:focus {
+      background: #222;
+      outline: 3px solid #fff
+    }
+
+    .tile .ico {
+      font-size: 44px
+    }
+
+    .tile small {
+      color: #999;
+      font-size: 13px
+    }
+
+    #hint-box {
+      background: #080818;
+      border: 2px solid #3333aa;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-top: 24px
+    }
+
+    #hint-box h3 {
+      color: #8888ff;
+      margin-bottom: 8px;
+      font-size: 18px
+    }
+
+    #hint-box ul {
+      list-style: none;
+      columns: 2;
+      gap: 12px
+    }
+
+    #hint-box li {
+      padding: 3px 0;
+      color: #aaa;
+      font-size: 15px
+    }
+
+    #hint-box li b {
+      color: var(--accent)
+    }
+
+    /* ── SCREEN HEADER ── */
+    .hdr {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 14px
+    }
+
+    .hdr h2 {
+      font-size: 30px;
+      color: var(--accent)
+    }
+
+    .back {
+      background: #222;
+      border: 2px solid var(--accent);
+      color: var(--accent);
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-size: 17px;
+      cursor: pointer
+    }
+
+    .back:hover {
+      background: #333
+    }
+
+    /* ── BUTTONS ── */
+    .btn {
+      background: var(--card);
+      border: 2px solid var(--accent);
+      color: #fff;
+      padding: 13px 22px;
+      border-radius: 8px;
+      font-size: 19px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px
+    }
+
+    .btn:hover {
+      background: #222
+    }
+
+    .btn.go {
+      border-color: var(--green);
+      color: var(--green)
+    }
+
+    .btn.stop {
+      border-color: var(--red);
+      color: var(--red)
+    }
+
+    .btn:focus {
+      outline: 3px solid var(--accent)
+    }
+
+    /* ── DOCS ── */
+    #doc-body {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+      margin-top: 16px;
+      max-height: 380px;
+      overflow-y: auto;
+      font-size: 17px;
+      line-height: 1.85;
+      color: #ddd
+    }
+
+    #doc-name {
+      color: #888;
+      font-size: 15px;
+      margin-bottom: 8px
+    }
+
+    /* ── CONTACTS ── */
+    .ccard {
+      background: var(--card);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between
+    }
+
+    .ccard:hover {
+      border-color: var(--accent)
+    }
+
+    .cname {
+      font-size: 23px;
+      font-weight: bold;
+      color: var(--accent)
+    }
+
+    .cnum {
+      color: #888;
+      font-size: 15px;
+      margin-top: 4px
+    }
+
+    .cbtn {
+      background: #003300;
+      border: 2px solid var(--green);
+      color: var(--green);
+      padding: 11px 18px;
+      border-radius: 8px;
+      font-size: 17px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 7px
+    }
+
+    .cbtn:hover {
+      background: #005500
+    }
+
+    /* ── MAPS ── */
+    #map {
+      width: 100%;
+      height: 400px;
+      border: 2px solid var(--accent);
+      border-radius: 8px;
+      margin-top: 14px;
+      background: #111
+    }
+
+    .nav-row {
+      display: flex;
+      gap: 10px;
+      margin: 16px 0
+    }
+
+    #nav-inp {
+      flex: 1;
+      background: var(--card);
+      border: 2px solid var(--accent);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 19px
+    }
+
+    #nav-inp::placeholder {
+      color: #555
+    }
+
+    #cur-step {
+      background: #001a00;
+      border: 2px solid var(--green);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-top: 14px;
+      font-size: 19px;
+      display: none
+    }
+
+    .dstep {
+      background: var(--card);
+      border-left: 4px solid var(--accent);
+      padding: 11px 15px;
+      margin-bottom: 8px;
+      border-radius: 0 8px 8px 0;
+      font-size: 17px
+    }
+
+    .dstep.cur {
+      border-left-color: var(--green);
+      background: #001400
+    }
+
+    /* ── WALKING ── */
+    #walk-status {
+      font-size: 26px;
+      text-align: center;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 18px 0;
+      background: #001a00;
+      border: 2px solid var(--green);
+      color: var(--green)
+    }
+
+    #walk-status.warn {
+      background: #1a0000;
+      border-color: var(--red);
+      color: var(--red)
+    }
+
+    .det-item {
+      background: var(--card);
+      border-left: 4px solid var(--red);
+      padding: 9px 14px;
+      margin-bottom: 7px;
+      font-size: 17px;
+      border-radius: 0 8px 8px 0
+    }
+
+    /* ── OBJECTS ── */
+    #obj-result {
+      background: var(--card);
+      border: 2px solid var(--accent);
+      border-radius: 12px;
+      padding: 18px;
+      margin-top: 18px;
+      font-size: 19px;
+      min-height: 90px
+    }
+
+    .obj-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 19px
+    }
+
+    .obj-row:last-of-type {
+      border: none
+    }
+
+    .conf-bar {
+      width: 90px;
+      height: 9px;
+      background: #333;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-top: 4px
+    }
+
+    .conf-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 5px
+    }
+
+    /* ── MISC ── */
+    .loader {
+      text-align: center;
+      padding: 36px;
+      color: #888
+    }
+
+    .spin {
+      display: inline-block;
+      width: 38px;
+      height: 38px;
+      border: 4px solid #333;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    ::-webkit-scrollbar {
+      width: 7px
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #111
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #444;
+      border-radius: 4px
+    }
+
+    *:focus {
+      outline: 3px solid var(--accent);
+      outline-offset: 2px
+    }
+
+    #file-inp {
+      display: none
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- STATUS BAR -->
+  <div id="status-bar" role="status" aria-live="polite">
+    <div id="mic-dot"></div>
+    <div id="voice-text">Starting…</div>
+    <div id="speak-icon">🎤</div>
+  </div>
+
+  <!-- OBSTACLE ALERT -->
+  <div id="alert-box" role="alert" aria-live="assertive"></div>
+
+  <!-- CAMERA PREVIEW (fixed corner) -->
+  <div id="cam-wrap">
+    <video id="cam-video" autoplay playsinline muted aria-label="Camera preview"></video>
+    <canvas id="det-canvas"></canvas>
+  </div>
+  <canvas id="snap-canvas" width="640" height="480"></canvas>
+  <input type="file" id="file-inp" accept=".pdf,.docx,.txt">
+
+  <div id="wrap">
+    <div id="content">
+
+      <!-- HOME -->
+      <div id="home" class="scr on" role="main">
+        <h1>Voice Access</h1>
+        <p class="tagline">Fully voice-controlled accessibility assistant</p>
+        <div class="grid" role="navigation" aria-label="Main menu">
+          <button class="tile" onclick="nav('docs')" aria-label="Documents">
+            <span class="ico">📄</span><span>Documents</span><small>Read files aloud</small>
+          </button>
+          <button class="tile" onclick="nav('contacts')" aria-label="Contacts">
+            <span class="ico">📞</span><span>Contacts</span><small>Call people</small>
+          </button>
+          <button class="tile" onclick="nav('maps')" aria-label="Maps">
+            <span class="ico">🗺️</span><span>Maps</span><small>Turn-by-turn navigation</small>
+          </button>
+          <button class="tile" onclick="nav('walking')" aria-label="Walking Mode">
+            <span class="ico">🚶</span><span>Walking Mode</span><small>Obstacle detection</small>
+          </button>
+          <button class="tile" onclick="nav('objects')" aria-label="Object Recognition">
+            <span class="ico">👁️</span><span>Object Recognition</span><small>Identify surroundings</small>
+          </button>
+        </div>
+        <div id="hint-box">
+          <h3>Available Voice Commands</h3>
+          <ul>
+            <li><b>"Documents"</b> — open reader</li>
+            <li><b>"Contacts"</b> — view contacts</li>
+            <li><b>"Maps"</b> — navigation</li>
+            <li><b>"Walking Mode"</b> — obstacles</li>
+            <li><b>"Object Recognition"</b> — scan</li>
+            <li><b>"Help"</b> — repeat commands</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div id="docs" class="scr" role="main">
+        <div class="hdr">
+          <button class="back" onclick="nav('home')">← Home</button>
+          <h2>📄 Document Reader</h2>
+        </div>
+        <div style="display:flex;flex-wrap:wrap">
+          <button class="btn" onclick="triggerUpload()">📁 Upload File</button>
+          <button class="btn go" onclick="readDoc()">▶ Read Aloud</button>
+          <button class="btn" onclick="pauseDoc()">⏸ Pause</button>
+          <button class="btn" onclick="resumeDoc()">▶ Resume</button>
+          <button class="btn stop" onclick="stopDoc()">⏹ Stop</button>
+        </div>
+        <div id="doc-name">No file loaded — say "Upload file"</div>
+        <div id="doc-body" role="region" aria-label="Document content">
+          <p style="color:#555;text-align:center;margin-top:30px">Say "Upload file" to load a PDF, Word doc, or text
+            file</p>
+        </div>
+      </div>
+
+      <!-- CONTACTS -->
+      <div id="contacts" class="scr" role="main">
+        <div class="hdr">
+          <button class="back" onclick="nav('home')">← Home</button>
+          <h2>📞 Contacts</h2>
+        </div>
+        <details id="add-contact-panel"
+          style="background:#111;border:2px solid var(--accent);border-radius:12px;padding:16px;margin-bottom:16px">
+          <summary style="color:var(--accent);font-size:19px;cursor:pointer;font-weight:bold">➕ Add New Contact
+          </summary>
+          <div style="margin-top:12px">
+            <input type="text" id="new-cname" placeholder="Full name" aria-label="Contact name"
+              style="width:100%;background:#000;border:2px solid #444;color:#fff;padding:11px 14px;border-radius:8px;font-size:18px;margin-bottom:8px;display:block">
+            <input type="tel" id="new-cphone" placeholder="Phone with country code e.g. +918838489218"
+              aria-label="Phone number"
+              style="width:100%;background:#000;border:2px solid #444;color:#fff;padding:11px 14px;border-radius:8px;font-size:18px;margin-bottom:10px;display:block">
+            <button class="btn go" onclick="addContactInline()" style="width:100%;justify-content:center">💾 Save
+              Contact</button>
+          </div>
+        </details>
+        <p style="color:#888;margin-bottom:18px">Say <b style="color:var(--accent)">"Call [name]"</b> to dial · <b
+            style="color:#25D366">"WhatsApp [name]"</b> for free WhatsApp call</p>
+        <div id="clist" role="list"></div>
+      </div>
+
+      <!-- MAPS -->
+      <div id="maps" class="scr" role="main">
+        <div class="hdr">
+          <button class="back" onclick="nav('home')">← Home</button>
+          <h2>🗺️ Maps &amp; Navigation</h2>
+        </div>
+        <div class="nav-row">
+          <input type="text" id="nav-inp" placeholder='Say: "Navigate to hospital"' readonly aria-label="Destination">
+          <button class="btn go" onclick="doNav(document.getElementById('nav-inp').value)">Go</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap">
+          <button class="btn go" onclick="myLocation()">📍 My Location</button>
+          <button class="btn stop" onclick="stopNav()">✕ Stop Navigation</button>
+        </div>
+        <div id="map" aria-label="Map"></div>
+        <div id="cur-step" role="status" aria-live="polite"></div>
+        <div id="dlist" aria-live="polite" aria-label="Directions"></div>
+      </div>
+
+      <!-- WALKING -->
+      <div id="walking" class="scr" role="main">
+        <div class="hdr">
+          <button class="back" onclick="nav('home')">← Home</button>
+          <h2>🚶 Walking Mode</h2>
+        </div>
+        <div style="display:flex;flex-wrap:wrap">
+          <button class="btn go" onclick="startWalking()">▶ Start Walking Mode</button>
+          <button class="btn stop" onclick="stopWalking()">⏹ Stop</button>
+        </div>
+        <div id="walk-status" role="status" aria-live="assertive">Say "Start walking mode" to begin</div>
+        <div id="det-list" role="log" aria-live="polite" aria-label="Detected obstacles"></div>
+        <p style="color:#666;font-size:15px;margin-top:16px">Commands: "Start walking mode" · "Stop" · "Go back"</p>
+      </div>
+
+      <!-- OBJECTS -->
+      <div id="objects" class="scr" role="main">
+        <div class="hdr">
+          <button class="back" onclick="nav('home')">← Home</button>
+          <h2>👁️ Object Recognition</h2>
+        </div>
+        <div style="display:flex;flex-wrap:wrap">
+          <button class="btn go" onclick="scanObjects()">🔍 Start Scanning</button>
+          <button class="btn stop" onclick="stopCam();say('Camera stopped.')">📷 Stop Camera</button>
+        </div>
+        <p style="color:#666;font-size:15px;margin:8px 0 4px">Say "Identify object" to scan. Red box = high confidence.
+          Yellow = possible.</p>
+        <div id="obj-result" role="status" aria-live="polite">
+          <p style="color:#555;text-align:center">Say "Identify object" or tap Start Scanning</p>
+        </div>
+      </div>
+
+    </div><!-- #content -->
+  </div><!-- #wrap -->
+
+  <!-- LIBRARIES -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+  <script>
+    'use strict';
+
+    // ── PDF.js WORKER ──
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    // ══════════════════════════════════════════
+    //  STATE
+    // ══════════════════════════════════════════
+    let curScreen = 'home';
+    let recog = null;
+    let cocoModel = null;
+    let camStream = null;
+    let docText = '';
+    let isWalking = false;
+    let walkTimer = null;
+    let navActive = false;
+    let navSteps = [];
+    let navStepIndex = 0;
+    let navWatchId = null;
+    let navNavigating = false;
+    let navWalkTimer = null;
+    let leafMap = null;
+    let routeLayer = null;
+    let pinLayer = null;
+    let directions = [];
+    let speaking = false;
+    let speechQ = [];
+    let lastWarnTime = 0;
+    let lastClearMsg = 0;
+    let lastDistAnnounced = 0;
+    let objScanTimer = null;
+
+    function loadContacts() {
+      try {
+        const saved = localStorage.getItem('va_contacts');
+        return saved ? JSON.parse(saved) : [{ name: 'Prasanna', phone: '+918838489218' }];
+      } catch (e) { return [{ name: 'Prasanna', phone: '+918838489218' }]; }
+    }
+    function saveContacts() {
+      try { localStorage.setItem('va_contacts', JSON.stringify(CONTACTS)); } catch (e) { }
+    }
+    let CONTACTS = loadContacts();
+
+    // ══════════════════════════════════════════
+    //  SPEECH SYNTHESIS
+    // ══════════════════════════════════════════
+    function say(text, interrupt) {
+      if (!text) return;
+      if (interrupt) {
+        window.speechSynthesis.cancel();
+        speechQ = [];
+        speaking = false;
+      }
+      speechQ.push(text);
+      drainQ();
+    }
+
+    function drainQ() {
+      if (speaking || !speechQ.length) return;
+      const text = speechQ.shift();
+      speaking = true;
+      setIcon('🔊');
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.88; u.pitch = 1; u.volume = 1;
+      const vs = speechSynthesis.getVoices();
+      const v = vs.find(x => /google/i.test(x.name) && /en/i.test(x.lang))
+        || vs.find(x => /en-US/i.test(x.lang))
+        || vs[0];
+      if (v) u.voice = v;
+      u.onend = u.onerror = () => { speaking = false; setIcon('🎤'); drainQ(); };
+      speechSynthesis.speak(u);
+    }
+
+    function setIcon(ic) {
+      document.getElementById('speak-icon').textContent = ic;
+    }
+
+    // ══════════════════════════════════════════
+    //  VOICE RECOGNITION
+    // ══════════════════════════════════════════
+    function initRecog() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        setVoiceText('Speech recognition not supported — use Chrome or Edge');
+        say('Speech recognition is not supported. Please use Google Chrome or Microsoft Edge.', true);
+        return;
+      }
+      recog = new SR();
+      recog.continuous = true;
+      recog.interimResults = false;
+      recog.lang = 'en-US';
+      recog.maxAlternatives = 3;
+
+      recog.onstart = () => { micOn(true); setVoiceText('Listening…'); };
+      recog.onend = () => { micOn(false); setTimeout(restartRecog, 400); };
+      recog.onerror = (e) => {
+        if (e.error === 'not-allowed') {
+          setVoiceText('Microphone access denied — please allow and reload');
+          say('Microphone access denied. Please allow microphone access and reload the page.', true);
+          return;
+        }
+        if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          setVoiceText('Mic error: ' + e.error);
+        }
+        setTimeout(restartRecog, 600);
+      };
+      recog.onresult = (ev) => {
+        const r = ev.results[ev.results.length - 1];
+        if (!r.isFinal) return;
+        const t = r[0].transcript.trim().toLowerCase();
+        if (speaking) return; // Prevent hearing its own speech
+        setVoiceText('You said: ' + t);
+        dispatch(t);
+      };
+      try { recog.start(); } catch (e) { setTimeout(restartRecog, 800); }
+    }
+
+    function restartRecog() {
+      if (!recog) { initRecog(); return; }
+      try { recog.start(); } catch (e) { setTimeout(restartRecog, 1000); }
+    }
+
+    function micOn(on) {
+      document.getElementById('mic-dot').classList.toggle('on', on);
+    }
+    function setVoiceText(t) {
+      document.getElementById('voice-text').textContent = t;
+    }
+
+    // ══════════════════════════════════════════
+    //  COMMAND DISPATCHER
+    // ══════════════════════════════════════════
+    function has(t, ...words) { return words.some(w => t.includes(w)); }
+
+    function dispatch(t) {
+      // ── Universal ──
+      if (has(t, 'home', 'go back', 'main menu')) { nav('home'); return; }
+      if (has(t, 'help', 'what can i say', 'commands')) { helpSpeak(); return; }
+
+      // ── Screen navigation ──
+      if (has(t, 'document', 'read file', 'read a file')) { nav('docs'); return; }
+      if (has(t, 'contact', 'call someone')) { nav('contacts'); return; }
+      if (has(t, 'map', 'navigation', 'navigate') && !t.includes('navigate to')) { nav('maps'); return; }
+      if (has(t, 'walking mode', 'start walking', 'walking')) { nav('walking'); return; }
+      if (has(t, 'object recognition', 'identify object', 'what is in front', 'what do you see')) { nav('objects'); return; }
+
+      // ── Screen-specific ──
+      if (curScreen === 'docs') docCmd(t);
+      else if (curScreen === 'contacts') contactCmd(t);
+      else if (curScreen === 'maps') mapCmd(t);
+      else if (curScreen === 'walking') walkCmd(t);
+      else if (curScreen === 'objects') objCmd(t);
+    }
+
+    function helpSpeak() {
+      const H = {
+        home: 'Say: Documents. Contacts. Maps. Walking Mode. Object Recognition.',
+        docs: 'Say: Upload file. Read aloud. Pause. Resume. Stop. Repeat. Go back.',
+        contacts: 'Say: Call, then a name. For example: Call John. Or say WhatsApp John. Go back.',
+        maps: 'Say: Navigate to, then a place. Stop navigation. My location. Go back.',
+        walking: 'Say: Start walking mode. Stop. Go back.',
+        objects: 'Say: Identify object. Scan again. Stop camera. Go back.',
+      };
+      say(H[curScreen] || H.home, true);
+    }
+
+    // ══════════════════════════════════════════
+    //  NAVIGATION
+    // ══════════════════════════════════════════
+    const MSGS = {
+      home: 'Main menu. Say Documents, Contacts, Maps, Walking Mode, or Object Recognition.',
+      docs: 'Document reader. Say Upload file to load a PDF, Word doc, or text file.',
+      maps: 'Maps. Say Navigate to, followed by your destination.',
+      walking: 'Walking mode. Say Start walking mode to begin obstacle detection.',
+      objects: 'Object recognition. Say Identify object to scan.',
+    };
+
+    function nav(screen) {
+      // Tear-down leaving screens
+      if (curScreen === 'walking') stopWalking(true);
+      if (curScreen === 'docs') stopDoc(true);
+      if (curScreen === 'objects' && objScanTimer) { clearInterval(objScanTimer); objScanTimer = null; }
+
+      document.querySelectorAll('.scr').forEach(s => s.classList.remove('on'));
+      const el = document.getElementById(screen);
+      if (!el) return;
+      el.classList.add('on');
+      curScreen = screen;
+
+      if (screen === 'maps' && !leafMap) setTimeout(initMap, 300);
+      if (screen === 'contacts') { renderContacts(); }
+
+      if (screen === 'contacts') {
+        const names = CONTACTS.map(c => c.name).join(', ');
+        say('Contacts. ' + names + '. Say Call followed by a name.', true);
+      } else {
+        say(MSGS[screen] || screen, true);
+      }
+
+      if (screen === 'walking') setTimeout(startWalking, 1800);
+      if (screen === 'objects') setTimeout(scanObjects, 1800);
+    }
+
+    // ══════════════════════════════════════════
+    //  DOCUMENTS
+    // ══════════════════════════════════════════
+    function docCmd(t) {
+      if (has(t, 'upload', 'open file', 'load file', 'browse')) triggerUpload();
+      else if (has(t, 'read', 'start reading', 'play')) readDoc();
+      else if (has(t, 'pause')) pauseDoc();
+      else if (has(t, 'resume', 'continue', 'unpause')) resumeDoc();
+      else if (has(t, 'stop', 'cancel')) stopDoc();
+      else if (has(t, 'repeat', 'again', 'start over')) { stopDoc(); setTimeout(readDoc, 500); }
+    }
+
+    function triggerUpload() {
+      say('Opening file picker. Select a PDF, Word document, or text file.');
+      document.getElementById('file-inp').click();
+    }
+
+    document.getElementById('file-inp').addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      document.getElementById('doc-name').textContent = 'Loading: ' + file.name;
+      say('Loading: ' + file.name);
+      try {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext === 'txt') { docText = await file.text(); showDoc(file.name); }
+        else if (ext === 'pdf') await loadPDF(file);
+        else if (ext === 'docx') await loadDocx(file);
+        else say('Unsupported file type. Use PDF, Word, or plain text.');
+      } catch (e) {
+        say('Error loading file: ' + e.message);
+      }
+      ev.target.value = '';
+    });
+
+    async function loadPDF(file) {
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      let txt = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pg = await pdf.getPage(i);
+        const tc = await pg.getTextContent();
+        txt += tc.items.map(x => x.str).join(' ') + '\n\n';
+      }
+      docText = txt;
+      showDoc(file.name + ' (' + pdf.numPages + ' pages)');
+    }
+
+    async function loadDocx(file) {
+      const buf = await file.arrayBuffer();
+      const res = await mammoth.extractRawText({ arrayBuffer: buf });
+      docText = res.value;
+      showDoc(file.name);
+    }
+
+    function showDoc(name) {
+      document.getElementById('doc-name').textContent = name;
+      document.getElementById('doc-body').textContent = docText;
+      say('File loaded: ' + name + '. Say Read aloud to hear it.');
+    }
+
+    function readDoc() {
+      if (!docText) { say('No document loaded. Say Upload file first.'); return; }
+      stopDoc(true);
+      say('Starting to read the document.', true);
+      setTimeout(() => {
+        const u = new SpeechSynthesisUtterance(docText);
+        u.rate = 0.84;
+        const vs = speechSynthesis.getVoices();
+        const v = vs.find(x => /en-US/i.test(x.lang)) || vs[0];
+        if (v) u.voice = v;
+        u.onend = () => say('Document reading complete.');
+        speechSynthesis.speak(u);
+      }, 1500);
+    }
+
+    function pauseDoc() { if (speechSynthesis.speaking) speechSynthesis.pause(); }
+    function resumeDoc() { if (speechSynthesis.paused) speechSynthesis.resume(); }
+    function stopDoc(silent) {
+      speechSynthesis.cancel();
+      speaking = false;
+      speechQ = [];
+      setIcon('🎤');
+      if (!silent) say('Stopped.');
+    }
+
+    // ══════════════════════════════════════════
+    //  CONTACTS
+    // ══════════════════════════════════════════
+    function renderContacts() {
+      const el = document.getElementById('clist');
+      el.innerHTML = '';
+      if (!CONTACTS.length) {
+        el.innerHTML = '<p style="color:#666;padding:16px">No contacts yet. Add one above.</p>';
+        return;
+      }
+      CONTACTS.forEach((c, i) => {
+        const d = document.createElement('div');
+        d.className = 'ccard'; d.setAttribute('role', 'listitem');
+        d.innerHTML = `
+      <div style="flex:1">
+        <div class="cname">${c.name}</div>
+        <div class="cnum">${c.phone}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
+        <button class="cbtn" onclick="callPerson('${c.name.replace(/'/g, "\\'")}')" aria-label="Call ${c.name}">📞 Call</button>
+        <button style="background:#003300;border:2px solid #25D366;color:#25D366;padding:11px 14px;border-radius:8px;font-size:17px;cursor:pointer" onclick="whatsappPerson('${c.name.replace(/'/g, "\\'")}')" aria-label="WhatsApp ${c.name}">💬 WhatsApp</button>
+        <button style="background:#1a0000;border:2px solid var(--red);color:var(--red);padding:11px 14px;border-radius:8px;font-size:17px;cursor:pointer" onclick="deleteContact(${i})" aria-label="Delete ${c.name}">🗑️</button>
+      </div>`;
+        el.appendChild(d);
+      });
+    }
+
+    function contactCmd(t) {
+      if (has(t, 'add contact', 'new contact')) {
+        document.getElementById('add-contact-panel').open = true;
+        document.getElementById('new-cname').focus();
+        say('Type the name and phone number in the form.');
+      } else if (t.includes('whatsapp ')) {
+        whatsappPerson(t.replace(/.*whatsapp\s+/i, '').trim());
+      } else if (t.includes('call ')) {
+        callPerson(t.replace(/.*call\s+/i, '').trim());
+      }
+    }
+
+    function addContactPrompt() {
+      document.getElementById('add-contact-panel').open = true;
+      document.getElementById('new-cname').focus();
+      say('Type the name and phone number in the form.');
+    }
+
+    function addContactInline() {
+      const nameEl = document.getElementById('new-cname');
+      const phoneEl = document.getElementById('new-cphone');
+      const name = nameEl.value.trim();
+      const phone = phoneEl.value.trim();
+      if (!name) { say('Please enter a contact name.'); nameEl.focus(); return; }
+      if (!phone) { say('Please enter a phone number.'); phoneEl.focus(); return; }
+      CONTACTS.push({ name, phone });
+      saveContacts();
+      nameEl.value = '';
+      phoneEl.value = '';
+      document.getElementById('add-contact-panel').open = false;
+      renderContacts();
+      say(name + ' added to contacts.');
+    }
+
+    function deleteContact(index) {
+      const name = CONTACTS[index] ? CONTACTS[index].name : '';
+      CONTACTS.splice(index, 1);
+      saveContacts();
+      renderContacts();
+      if (name) say(name + ' removed from contacts.');
+    }
+
+    function callPerson(query) {
+      const q = query.toLowerCase();
+      const c = CONTACTS.find(x =>
+        x.name.toLowerCase().includes(q) ||
+        q.includes(x.name.toLowerCase().split(' ')[0])
+      );
+      if (!c) {
+        say('Contact not found. Say Call followed by: ' + CONTACTS.map(x => x.name.split(' ')[0]).join(', '));
+        return;
+      }
+      say('Calling ' + c.name + ' via phone.', true);
+      // tel: opens phone dialer on mobile; on desktop opens default calling app (Skype, Teams, etc.)
+      window.location.href = 'tel:' + c.phone;
+    }
+
+    function whatsappPerson(query) {
+      const q = typeof query === 'string' ? query.toLowerCase() : '';
+      const c = CONTACTS.find(x =>
+        x.name.toLowerCase().includes(q) ||
+        q.includes(x.name.toLowerCase().split(' ')[0])
+      ) || (typeof query === 'object' ? query : null);
+      if (!c) { say('Contact not found.'); return; }
+      say('Opening WhatsApp for ' + c.name, true);
+      // Strip all non-digit characters except leading +
+      const num = c.phone.replace(/[^\d]/g, '');
+      window.open('https://wa.me/' + num, '_blank');
+    }
+
+    // ══════════════════════════════════════════
+    //  MAP & NAVIGATION
+    // ══════════════════════════════════════════
+    function getDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371e3;
+      const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+      const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    async function startNavObstacleDetection() {
+      const model = await ensureCoco();
+      if (!model) return;
+      const v = await startCam('environment');
+      if (!v) return;
+
+      await new Promise(ok => { v.onloadeddata = ok; setTimeout(ok, 2000); });
+
+      const THREATS = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus', 'dog', 'cat', 'chair', 'bench', 'fire hydrant', 'stop sign', 'couch', 'bed', 'dining table', 'suitcase', 'potted plant', 'tv', 'refrigerator'];
+
+      navWalkTimer = setInterval(async () => {
+        if (!navNavigating) return;
+        const preds = await runDetect();
+        const stairs = detectStairs();
+        const now = Date.now();
+        const hits = preds.filter(p => p.score > 0.35 && THREATS.includes(p.class));
+
+        if (stairs && now - lastWarnTime > 5000) {
+          say('Warning! Stairs ahead. Be careful.', true);
+          lastWarnTime = now;
+        } else if (hits.length && now - lastWarnTime > 4000) {
+          const first = hits[0];
+          const side = pos(first.bbox, v.videoWidth);
+          const prox = proximity(first.bbox, v.videoHeight);
+          say(`Caution! ${first.class} ${prox} ${side}.`, true);
+          lastWarnTime = now;
+        }
+      }, 2000);
+    }
+    function initMap() {
+      if (leafMap) return;
+      leafMap = L.map('map').setView([40.7128, -74.006], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors', maxZoom: 19
+      }).addTo(leafMap);
+      say('Map ready. Say Navigate to, followed by your destination.');
+    }
+
+    function mapCmd(t) {
+      if (t.includes('navigate to ')) doNav(t.replace('navigate to ', '').trim());
+      else if (has(t, 'my location', 'where am i')) myLocation();
+      else if (has(t, 'stop navigation', 'cancel')) stopNav();
+    }
+
+    function myLocation() {
+      say('Getting your location.');
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const { latitude: la, longitude: lo } = pos.coords;
+          if (leafMap) {
+            leafMap.setView([la, lo], 15);
+            L.marker([la, lo]).addTo(leafMap).bindPopup('You are here').openPopup();
+          }
+          say(`Your location: latitude ${la.toFixed(4)}, longitude ${lo.toFixed(4)}.`);
+        },
+        () => say('Could not get location. Check location permissions.')
+      );
+    }
+
+    async function doNav(dest) {
+      if (!dest) { say('Say where you want to go. Example: Navigate to hospital.'); return; }
+      document.getElementById('nav-inp').value = dest;
+      say('Finding route to ' + dest + '. Please wait.', true);
+      try {
+        const pos = await new Promise((ok, fail) =>
+          navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: true })
+        );
+        const { latitude: fLa, longitude: fLo } = pos.coords;
+
+        const geoRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&limit=1`,
+          { headers: { 'Accept-Language': 'en' } }
+        );
+        const geoData = await geoRes.json();
+        if (!geoData.length) { say('Could not find: ' + dest + '. Try a different name.'); return; }
+
+        const tLa = parseFloat(geoData[0].lat);
+        const tLo = parseFloat(geoData[0].lon);
+        const label = geoData[0].display_name.split(',')[0];
+        say('Found ' + label + '. Calculating walking route.');
+
+        const routeRes = await fetch(
+          `https://router.project-osrm.org/route/v1/foot/${fLo},${fLa};${tLo},${tLa}?steps=true&geometries=geojson&overview=full`
+        );
+        const routeData = await routeRes.json();
+        if (routeData.code !== 'Ok') { say('Could not calculate route. Please try again.'); return; }
+
+        const route = routeData.routes[0];
+        const dist = (route.distance / 1000).toFixed(1);
+        const mins = Math.round(route.duration / 60);
+
+        // Display on map
+        if (leafMap) {
+          if (routeLayer) leafMap.removeLayer(routeLayer);
+          if (pinLayer) leafMap.removeLayer(pinLayer);
+          routeLayer = L.geoJSON(route.geometry, { style: { color: '#FFD700', weight: 5, opacity: .8 } }).addTo(leafMap);
+          pinLayer = L.layerGroup([
+            L.marker([fLa, fLo]).bindPopup('Start'),
+            L.marker([tLa, tLo]).bindPopup('Destination: ' + label)
+          ]).addTo(leafMap);
+          leafMap.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+        }
+
+        // Parse steps
+        navSteps = route.legs[0].steps;
+        directions = navSteps.map(stepText).filter(Boolean);
+        navActive = true;
+        navNavigating = true;
+        navStepIndex = 0;
+        renderDirs();
+
+        say(`Route to ${label}. ${dist} kilometres. About ${mins} minutes walking. ${directions[0]}`, true);
+
+        if (navWatchId) navigator.geolocation.clearWatch(navWatchId);
+        navWatchId = navigator.geolocation.watchPosition(
+          (pos) => updateNavPosition(pos),
+          (err) => console.log(err),
+          { enableHighAccuracy: true }
+        );
+        startNavObstacleDetection();
+      } catch (e) {
+        say('Navigation error: ' + (e.message || e));
+        console.error(e);
+      }
+    }
+
+    function updateNavPosition(gpsPos) {
+      if (!navNavigating || navStepIndex >= navSteps.length) return;
+      const { latitude, longitude } = gpsPos.coords;
+
+      // Check arrival at final destination
+      const lastStep = navSteps[navSteps.length - 1];
+      if (lastStep && lastStep.maneuver && lastStep.maneuver.type === 'arrive') {
+        const loc = lastStep.maneuver.location;
+        if (getDistance(latitude, longitude, loc[1], loc[0]) < 20) {
+          say('You have arrived at your destination!', true);
+          stopNav();
+          return;
+        }
+      }
+
+      const nextIdx = navStepIndex + 1;
+      if (nextIdx >= navSteps.length) return;
+
+      const nextStep = navSteps[nextIdx];
+      const loc = nextStep.maneuver.location;
+      const dist = Math.round(getDistance(latitude, longitude, loc[1], loc[0]));
+      const now = Date.now();
+
+      // Early warning: announce turn when 60 m away (once per approach)
+      if (dist <= 60 && dist > 15 && now - lastDistAnnounced > 12000) {
+        const nextInstr = stepText(navSteps[nextIdx]);
+        if (nextInstr) {
+          say(`In ${dist} metres, ${nextInstr}`, true);
+          lastDistAnnounced = now;
+        }
+      }
+
+      // Reached waypoint – advance to next step
+      if (dist <= 15) {
+        navStepIndex = nextIdx;
+        lastDistAnnounced = now;
+        const instruction = stepText(navSteps[navStepIndex]);
+        if (instruction) say(instruction, true);
+
+        const cs = document.getElementById('cur-step');
+        if (cs) {
+          cs.style.display = 'block';
+          cs.textContent = `▶ Step ${navStepIndex + 1} of ${navSteps.length}: ${instruction}`;
+        }
+
+        document.querySelectorAll('.dstep').forEach((el, i) => {
+          el.classList.toggle('cur', i === navStepIndex);
+          if (i === navStepIndex) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      }
+    }
+
+    function ordinal(n) {
+      const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+
+    function stepText(s) {
+      if (!s || !s.maneuver) return null;
+      const m = s.maneuver;
+      const road = s.name || 'the road';
+      const dist = Math.round(s.distance);
+      const mod = m.modifier ? m.modifier : '';
+      const map = {
+        depart: `Head ${mod || 'straight'} on ${road}`,
+        arrive: `You have arrived`,
+        turn: `Turn ${mod} onto ${road}`,
+        'new name': `Continue onto ${road}`,
+        merge: `Merge onto ${road}`,
+        fork: `Keep ${mod} onto ${road}`,
+        'end of road': `Turn ${mod} onto ${road}`,
+        continue: `Continue straight on ${road}`,
+        roundabout: `At the roundabout, take the ${m.exit ? ordinal(m.exit) + ' exit' : 'exit'} onto ${road}`,
+        rotary: `At the roundabout, take the ${m.exit ? ordinal(m.exit) + ' exit' : 'exit'} onto ${road}`,
+      };
+      let txt = map[m.type] || `Continue on ${road}`;
+      if (dist > 0 && m.type !== 'arrive') txt += ` for ${dist} metres`;
+      return txt;
+    }
+
+    function renderDirs() {
+      const el = document.getElementById('dlist');
+      el.innerHTML = '<h3 style="color:var(--accent);margin:12px 0 8px">Turn-by-Turn Directions</h3>';
+      directions.forEach((d, i) => {
+        const div = document.createElement('div');
+        div.className = 'dstep' + (i === 0 ? ' cur' : '');
+        div.textContent = (i + 1) + '. ' + d;
+        el.appendChild(div);
+      });
+      const cs = document.getElementById('cur-step');
+      cs.style.display = 'block';
+      cs.textContent = '▶ ' + (directions[0] || '');
+    }
+
+    function stopNav() {
+      navActive = false;
+      navNavigating = false;
+      directions = [];
+      if (navWatchId) { navigator.geolocation.clearWatch(navWatchId); navWatchId = null; }
+      if (navWalkTimer) { clearInterval(navWalkTimer); navWalkTimer = null; }
+
+      if (curScreen !== 'walking' && curScreen !== 'objects') forceStopCam();
+
+      if (routeLayer && leafMap) { leafMap.removeLayer(routeLayer); routeLayer = null; }
+      if (pinLayer && leafMap) { leafMap.removeLayer(pinLayer); pinLayer = null; }
+      document.getElementById('dlist').innerHTML = '';
+      document.getElementById('cur-step').style.display = 'none';
+      document.getElementById('nav-inp').value = '';
+      say('Navigation stopped.');
+    }
+
+    // ══════════════════════════════════════════
+    //  CAMERA
+    // ══════════════════════════════════════════
+    async function startCam(facing) {
+      forceStopCam();
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing || 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        const v = document.getElementById('cam-video');
+        v.srcObject = camStream;
+        document.getElementById('cam-wrap').style.display = 'block';
+        return v;
+      } catch (e) {
+        say('Camera access failed. Please allow camera permission.');
+        return null;
+      }
+    }
+
+    function stopCam() {
+      if (navNavigating) return;
+      if (objScanTimer) { clearInterval(objScanTimer); objScanTimer = null; }
+      forceStopCam();
+    }
+
+    function forceStopCam() {
+      if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+      document.getElementById('cam-video').srcObject = null;
+      document.getElementById('cam-wrap').style.display = 'none';
+      const c = document.getElementById('det-canvas');
+      if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height);
+    }
+
+    async function ensureCoco() {
+      if (cocoModel) return cocoModel;
+      say('Loading AI model. One moment.');
+      try {
+        cocoModel = await cocoSsd.load();
+        say('AI model ready.');
+        return cocoModel;
+      } catch (e) {
+        say('Could not load AI model.');
+        return null;
+      }
+    }
+
+    async function runDetect() {
+      if (!cocoModel) return [];
+      const v = document.getElementById('cam-video');
+      if (!v.srcObject || v.readyState < 2) return [];
+      try {
+        const preds = await cocoModel.detect(v);
+        drawBoxes(preds, v.videoWidth, v.videoHeight);
+        return preds;
+      } catch (e) { return []; }
+    }
+
+    function drawBoxes(preds, vw, vh) {
+      const c = document.getElementById('det-canvas');
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      const sx = c.width / (vw || 640);
+      const sy = c.height / (vh || 480);
+      preds.forEach(p => {
+        if (p.score < 0.35) return;
+        const [x, y, w, h] = p.bbox;
+        ctx.strokeStyle = p.score > 0.6 ? '#ff4444' : '#FFD700'; ctx.lineWidth = 2;
+        ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+        ctx.fillStyle = ctx.strokeStyle; ctx.font = 'bold 11px Arial';
+        ctx.fillText(`${p.class} ${Math.round(p.score * 100)}%`, x * sx, y * sy - 4);
+      });
+    }
+
+    function pos(bbox, vw) {
+      const cx = bbox[0] + bbox[2] / 2;
+      const w = vw || 640;
+      return cx < w / 3 ? 'on the left' : cx > w * 2 / 3 ? 'on the right' : 'in the centre';
+    }
+
+    function proximity(bbox, vh) {
+      const ratio = bbox[3] / (vh || 480);
+      if (ratio > 0.45) return 'very close';
+      if (ratio > 0.22) return 'nearby';
+      return 'ahead';
+    }
+
+    function detectStairs() {
+      const v = document.getElementById('cam-video');
+      if (!v.srcObject) return false;
+      const c = document.getElementById('snap-canvas');
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      const img = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const W = c.width, H = c.height;
+      let hLines = 0;
+      for (let y = Math.floor(H * 0.45); y < H - 1; y++) {
+        let edges = 0;
+        for (let x = 0; x < W; x++) {
+          const i1 = (y * W + x) * 4, i2 = ((y + 1) * W + x) * 4;
+          const b1 = (img[i1] + img[i1 + 1] + img[i1 + 2]) / 3;
+          const b2 = (img[i2] + img[i2 + 1] + img[i2 + 2]) / 3;
+          if (Math.abs(b1 - b2) > 38) edges++;
+        }
+        if (edges > W * 0.38) hLines++;
+      }
+      return hLines > 4;
+    }
+
+    // ══════════════════════════════════════════
+    //  WALKING MODE
+    // ══════════════════════════════════════════
+    function walkCmd(t) {
+      if (has(t, 'start walking', 'begin')) startWalking();
+      else if (has(t, 'stop', 'stop camera')) stopWalking();
+    }
+
+    async function startWalking() {
+      if (isWalking) return;
+      say('Starting walking mode. Activating camera and obstacle detection.', true);
+      const model = await ensureCoco();
+      if (!model) return;
+      const v = await startCam('environment');
+      if (!v) return;
+      isWalking = true;
+      document.getElementById('walk-status').textContent = '✓ Walking Mode Active — Scanning for obstacles';
+      document.getElementById('walk-status').className = '';
+
+      await new Promise(ok => { v.onloadeddata = ok; setTimeout(ok, 2000); });
+
+      const THREATS = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus', 'dog', 'cat',
+        'chair', 'bench', 'fire hydrant', 'stop sign', 'couch', 'bed', 'dining table', 'suitcase',
+        'potted plant', 'tv', 'refrigerator', 'backpack', 'umbrella', 'handbag', 'skateboard',
+        'sports ball', 'traffic light', 'parking meter', 'bottle'];
+
+      walkTimer = setInterval(async () => {
+        if (!isWalking) return;
+        const preds = await runDetect();
+        const stairs = detectStairs();
+        const now = Date.now();
+        const hits = preds.filter(p => p.score > 0.35 && THREATS.includes(p.class));
+
+        const detEl = document.getElementById('det-list');
+        detEl.innerHTML = '';
+
+        if (stairs && now - lastWarnTime > 5000) {
+          say('Warning! Stairs ahead. Please be careful.', true);
+          lastWarnTime = now;
+          flashAlert('⚠️ STAIRS DETECTED!');
+          setWalkStatus('⚠️ STAIRS DETECTED — Be Careful!', true);
+        } else if (hits.length && now - lastWarnTime > 3500) {
+          const first = hits[0];
+          const side = pos(first.bbox, v.videoWidth);
+          const prox = proximity(first.bbox, v.videoHeight);
+          say(`Warning! ${first.class} ${prox} ${side}. Please stop.`, true);
+          lastWarnTime = now;
+          flashAlert(`⚠️ ${first.class.toUpperCase()} ${prox.toUpperCase()}!`);
+          setWalkStatus(`⚠️ ${hits.map(h => h.class).join(', ')} detected!`, true);
+        } else if (!hits.length && !stairs) {
+          setWalkStatus('✓ Path is clear', false);
+          if (now - lastClearMsg > 8000 && now - lastWarnTime > 6000) {
+            say('Path is clear.'); lastClearMsg = now;
+          }
+        }
+
+        preds.filter(p => p.score > 0.35).forEach(p => {
+          const it = document.createElement('div');
+          it.className = 'det-item';
+          const isThreat = THREATS.includes(p.class);
+          if (!isThreat) it.style.borderLeftColor = '#FFD700';
+          const side = pos(p.bbox, v.videoWidth);
+          const prox = proximity(p.bbox, v.videoHeight);
+          it.textContent = `${isThreat ? '⚠️' : '•'} ${p.class} — ${prox} ${side} (${Math.round(p.score * 100)}%)`;
+          detEl.appendChild(it);
+        });
+      }, 1500);
+    }
+
+    function setWalkStatus(msg, warn) {
+      const el = document.getElementById('walk-status');
+      el.textContent = msg;
+      el.className = warn ? 'warn' : '';
+    }
+
+    function stopWalking(silent) {
+      isWalking = false;
+      if (walkTimer) { clearInterval(walkTimer); walkTimer = null; }
+      stopCam();
+      document.getElementById('walk-status').textContent = 'Walking mode stopped.';
+      document.getElementById('det-list').innerHTML = '';
+      if (!silent) say('Walking mode stopped.');
+    }
+
+    // ══════════════════════════════════════════
+    //  OBJECT RECOGNITION
+    // ══════════════════════════════════════════
+    function objCmd(t) {
+      if (has(t, 'identify', 'scan', 'look', 'what is', 'see')) scanObjects();
+      else if (has(t, 'stop camera', 'stop scanning', 'stop')) { stopCam(); say('Camera stopped.'); }
+    }
+
+    async function scanObjects() {
+      if (objScanTimer) { clearInterval(objScanTimer); objScanTimer = null; }
+      const el = document.getElementById('obj-result');
+      el.innerHTML = '<div class="loader"><div class="spin"></div><p>Scanning…</p></div>';
+      say('Starting camera. Identifying objects.', true);
+
+      const model = await ensureCoco();
+      if (!model) { el.innerHTML = '<p style="color:var(--red)">AI model unavailable.</p>'; return; }
+
+      const v = await startCam('environment');
+      if (!v) { el.innerHTML = '<p style="color:var(--red)">Camera unavailable.</p>'; return; }
+
+      // Wait until the camera is producing real frames (currentTime > 0), not a black frame
+      await new Promise(ok => {
+        const check = () => { if (v.currentTime > 0 && v.videoWidth > 0) ok(); else requestAnimationFrame(check); };
+        requestAnimationFrame(check);
+        setTimeout(ok, 5000);
+      });
+      say('Scanning now.');
+
+      async function doOneScan(announce) {
+        try {
+          let backendSuccess = false;
+
+          // Try to get snapshot for advanced backend recognition
+          const c = document.getElementById('snap-canvas');
+          const ctx = c.getContext('2d');
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          const b64 = c.toDataURL('image/jpeg', 0.8);
+
+          try {
+            const res = await fetch('http://localhost:5000/recognize', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: b64 })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const text = data.text;
+              el.innerHTML = '<h3 style="color:var(--accent);margin-bottom:14px">Scene Description:</h3>' +
+                '<p style="font-size:20px;line-height:1.5">' + text + '</p>' +
+                '<p style="color:#555;font-size:14px;margin-top:12px">Say "Identify object" to scan again. Say "Stop camera" to stop.</p>';
+              if (announce) say('I see: ' + text, true);
+              backendSuccess = true;
+            }
+          } catch (err) {
+            console.log('Backend not available, falling back to local model.', err);
+          }
+
+          if (backendSuccess) return;
+
+          // Fallback to local coco-ssd
+          const preds = await runDetect();
+          el.innerHTML = '';
+
+          const sig = preds.filter(p => p.score > 0.35);
+          if (!sig.length) {
+            el.innerHTML = '<p style="color:#888;padding:12px">No objects detected. Move the camera slowly.</p>';
+            if (announce) say('Nothing detected. Move the camera slowly.');
+            return;
+          }
+
+          const vw = v.videoWidth || 640;
+          const vh = v.videoHeight || 480;
+
+          if (announce) {
+            const descs = sig.slice(0, 5).map(p =>
+              `${p.class} ${proximity(p.bbox, vh)} ${pos(p.bbox, vw)}`
+            );
+            say('I see: ' + descs.join(', ') + '.', true);
+          }
+
+          const h = document.createElement('h3');
+          h.style.cssText = 'color:var(--accent);margin-bottom:14px';
+          h.textContent = `Detected ${sig.length} Object${sig.length > 1 ? 's' : ''}:`;
+          el.appendChild(h);
+
+          sig.forEach(p => {
+            const r = document.createElement('div');
+            r.className = 'obj-row';
+            r.innerHTML = `
+          <span>${p.class} — ${proximity(p.bbox, vh)} ${pos(p.bbox, vw)}</span>
+          <div style="text-align:right">
+            <div style="color:#888;font-size:15px">${Math.round(p.score * 100)}%</div>
+            <div class="conf-bar"><div class="conf-fill" style="width:${p.score * 100}%"></div></div>
+          </div>`;
+            el.appendChild(r);
+          });
+
+          const ft = document.createElement('p');
+          ft.style.cssText = 'color:#555;font-size:14px;margin-top:12px';
+          ft.textContent = 'Say "Identify object" to scan again. Say "Stop camera" to stop.';
+          el.appendChild(ft);
+        } catch (e) {
+          el.innerHTML = '<p style="color:var(--red)">Scan failed: ' + e.message + '</p>';
+          if (announce) say('Scan failed. Say scan again to retry.');
+        }
+      }
+
+      await doOneScan(true);
+    }
+
+    // ══════════════════════════════════════════
+    //  ALERT FLASH
+    // ══════════════════════════════════════════
+    function flashAlert(msg) {
+      const el = document.getElementById('alert-box');
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 4000);
+    }
+
+    // ══════════════════════════════════════════
+    //  BOOT
+    // ══════════════════════════════════════════
+    function boot() {
+      // Prime voices
+      speechSynthesis.onvoiceschanged = () => { };
+      speechSynthesis.getVoices();
+
+      say('Welcome to Voice Access. Requesting microphone permission. Please allow microphone access.');
+
+      setTimeout(() => {
+        initRecog();
+        setTimeout(() => {
+          say('Microphone active. Say Documents, Contacts, Maps, Walking Mode, or Object Recognition. Say Help anytime for available commands.');
+        }, 1200);
+      }, 600);
+
+      // Preload COCO-SSD silently
+      setTimeout(() => ensureCoco().catch(() => { }), 4000);
+    }
+
+    window.addEventListener('load', boot);
+
+    // Pause recognition when tab hidden, resume when visible
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        try { if (recog) recog.stop(); } catch (e) { }
+      } else {
+        setTimeout(restartRecog, 600);
+      }
+    });
+
+    // Keyboard shortcuts (fallback)
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') nav('home');
+      if (e.key === ' ' && e.target === document.body) { e.preventDefault(); helpSpeak(); }
+    });
+  </script>
+</body>
+
+</html>
